@@ -17,6 +17,7 @@ from werkzeug import check_password_hash, generate_password_hash
 import MySQLdb
 import memcache
 import string
+import MySQLdb.cursors
 
 # configuration
 DATABASE = 'minitwitdb1.c9ti5icjkf8h.us-east-1.rds.amazonaws.com'
@@ -63,7 +64,8 @@ def get_db():
     """
     top = _app_ctx_stack.top
     if not hasattr(top, 'mysql_db'):
-        top.mysql_db = MySQLdb.connect(host=DATABASE, port=PORT, user=DB_USER, passwd=DB_PASS, db=DB_NAME)
+        #top.mysql_db = MySQLdb.connect(host=DATABASE, port=PORT, user=DB_USER, passwd=DB_PASS, db=DB_NAME)
+        top.mysql_db = MySQLdb.connect(host=DATABASE, port=PORT, user=DB_USER, passwd=DB_PASS, db=DB_NAME, cursorclass=MySQLdb.cursors.DictCursor)
 	#sqlite3.connect(app.config['DATABASE'])
     return top.mysql_db
 
@@ -117,18 +119,18 @@ def get_user_id(username):
     """Convenience method to look up the id for a username."""
     rv = query_db('select user_id from user where username=%s', (username,)
                   , one=True, cache=False)
-    return rv[0] if rv else None
+    return rv['user_id'] if rv else None
 
 
 def format_datetime(timestamp):
     """Format a timestamp for display."""
-    timestamp = time.time()
+    #timestamp = time.time()
     return datetime.utcfromtimestamp(timestamp).strftime('%Y-%m-%d @ %H:%M')
 
 
 def gravatar_url(email, size=80):
     """Return the gravatar image for the given email address."""
-    email = "foo@example.com"
+    #email = "foo@example.com"
     return 'http://www.gravatar.com/avatar/%s?d=identicon&s=%d' % \
         (md5(email.strip().lower().encode('utf-8')).hexdigest(), size)
 
@@ -158,7 +160,6 @@ def timeline():
                                     where who_id = %s))
         order by message.pub_date desc limit %s''',
         (uid, uid, PER_PAGE))
-    #print "message: ", m['user_id']
     return render_template('timeline.html', messages=m)
 
 
@@ -191,7 +192,7 @@ def user_timeline(username):
             select message.*, user.* from message, user where
             user.user_id = message.author_id and user.user_id =%s
             order by message.pub_date desc limit %s''',
-            [profile_user[0], PER_PAGE]), followed=followed,
+            [profile_user['user_id'], PER_PAGE]), followed=followed,
             profile_user=profile_user)
 
 
@@ -263,12 +264,12 @@ def login():
             username = %s''', (request.form['username']), one=True)
         if user is None:
             error = 'Invalid username'
-        elif not check_password_hash(user[3],
+        elif not check_password_hash(user['pw_hash'],
                                      request.form['password']):
             error = 'Invalid password'
         else:
             flash('You were logged in')
-            session['user_id'] = user[0]
+            session['user_id'] = user['user_id']
             return redirect(url_for('timeline'))
     return render_template('login.html', error=error)
 
