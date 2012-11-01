@@ -1,0 +1,13 @@
+<VirtualHost *:80>
+	ServerName ec2-50-19-162-177.compute-1.amazonaws.com
+	WSGIDaemonProcess minitwit user=www-data group=www-data threads=5
+	WSGIScriptAlias / /var/www/minitwit/minitwit.wsgi
+
+	<Directory /var/www/minitwit/minitwit.wsgi>
+		WSGIScriptReloading On
+		WSGIProcessGroup minitwit
+		WSGIApplicationGroup %{GLOBAL}
+		Order deny,allow
+		Allow from all
+	</Directory>
+</VirtualHost>
