@@ -89,7 +89,6 @@ def init_db():
         db.commit()
         mc.flush_all()
 
-# TODO: optimize for one=True
 def query_db(query, args=(), one=False, time=0, use=NO_CACHE):
     """Queries the database and returns a list of dictionaries."""
 
@@ -210,11 +209,16 @@ def user_timeline(username):
             follower.who_id = %s and follower.whom_id = %s''',
             (session['user_id'], profile_user['user_id']),
             one=True, time=30, use=FOLLOW) is not None
+    # could cache this rendered page, but there is some messiness
+    # because it depends on the followed param, so when invalidating
+    # that would have to be recomputed. Since this will be invalidated
+    # more often than rendered, and an invalidation would now involve a query, 
+    # may not be worth it.
     return render_template('timeline.html', messages=query_db('''
             select message.*, user.* from message, user where
             user.user_id = message.author_id and user.user_id =%s
             order by message.pub_date desc limit %s''',
-            [profile_user['user_id'], PER_PAGE], time=30, use=SELF_TWEETS), followed=followed,
+            [profile_user['user_id'], PER_PAGE], time=30), followed=followed,
             profile_user=profile_user)
 
 
@@ -246,10 +250,11 @@ def unfollow_user(username):
         abort(404)
     db = get_db()
     cursor = get_cursor()
+    uid = session['user_id']
     cursor.execute('delete from follower where who_id=%s and whom_id=%s',
-              (session['user_id'], whom_id))
+              (uid, whom_id))
     db.commit()
-    multi_invalidate_memcache((FOLLOW, USER_TIMELINE), (session['user_id'], whom_id))
+    multi_invalidate_memcache((FOLLOW, USER_TIMELINE), (uid, whom_id))
     flash('You are no longer following "%s"' % username)
     return redirect(url_for('user_timeline', username=username))
 
@@ -262,11 +267,11 @@ def add_message():
     if request.form['text']:
         db = get_db()
         cursor = get_cursor()
+        uid = session['user_id']
         cursor.execute('''insert into message (author_id, text, pub_date)
-          values (%s, %s, %s)''', (session['user_id'], request.form['text'],
-                                int(time.time())))
+          values (%s, %s, %s)''', (uid, request.form['text'], int(time.time())))
         db.commit()
-        multi_invalidate_memcache((SELF_TWEETS, USER_TIMELINE, TIMELINE), args=(session['user_id'],))
+        multi_invalidate_memcache((SELF_TWEETS, USER_TIMELINE, TIMELINE), args=(uid,))
         flash('Your message was recorded')
     return redirect(url_for('timeline'))
 
