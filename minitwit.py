@@ -118,7 +118,13 @@ def generate_key(use, args=()):
     """ computes the key based on the use """
     key = ''
     if use == TIMELINE:
-        key = 'timeline'
+        # make the public timeline specific to the user being logged in, 
+        # because the rendered pages are different for logged in versus
+        # not logged in
+        if not g.user:
+            key = 'timeline'
+        else:
+            key = 'timeline:loggedin'
     elif use == GET_USER_NAME or use == USER_TIMELINE or use == USER_TIMELINE \
             or use == GET_USER or use == SELF_TWEETS:
         key = str(args[0]) + ':' + str(use)
