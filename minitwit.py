@@ -306,6 +306,7 @@ def login():
         else:
             flash('You were logged in')
             session['user_id'] = user['user_id']
+            invalidate_memcache(TIMELINE)
             return redirect(url_for('timeline'))
     return render_template('login.html', error=error)
 
