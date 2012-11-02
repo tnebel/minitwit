@@ -5,10 +5,11 @@
 
     :copyright: (c) 2010 by Armin Ronacher.
     :license: BSD, see LICENSE for more details.
+
+    modified by Taylor Nebel
 """
 from __future__ import with_statement
 import time
-#from sqlite3 import dbapi2 as sqlite3
 from hashlib import md5
 from datetime import datetime
 from flask import Flask, request, session, url_for, redirect, \
@@ -37,6 +38,9 @@ app.config.from_envvar('MINITWIT_SETTINGS', silent=True)
 mc = memcache.Client(['cluster-1.hiyqy9.0001.use1.cache.amazonaws.com:11211',
                     'cluster-1.hiyqy9.0002.use1.cache.amazonaws.com:11211',
                     'cluster-1.hiyqy9.0003.use1.cache.amazonaws.com:11211'], debug=0)
+
+# enumerates the possible cases for which to cache queries or rendered pages
+# allows keys to be generated without actually processing the page or query text
 NO_CACHE = 0
 TIMELINE = 1
 GET_USER = 2
@@ -63,6 +67,7 @@ def get_cursor():
         top.cursor = get_db().cursor()
     return top.cursor
 
+
 @app.teardown_appcontext
 def close_database(exception):
     """Closes the database and cursor again at the end of the request."""
@@ -72,8 +77,10 @@ def close_database(exception):
     if hasattr(top, 'cursor'):
         top.cursor.close()
 
+
 def flush_cache():
     mc.flush_all()
+
 
 def init_db():
     """Creates the database tables."""
@@ -89,9 +96,9 @@ def init_db():
         db.commit()
         mc.flush_all()
 
+
 def query_db(query, args=(), one=False, time=0, use=NO_CACHE):
     """Queries the database and returns a list of dictionaries."""
-
     key = ''
     rv = None
     if use != NO_CACHE:
@@ -106,7 +113,9 @@ def query_db(query, args=(), one=False, time=0, use=NO_CACHE):
             mc.set(key, rv, time)
     return (rv[0] if rv else None) if one else rv
 
+
 def generate_key(use, args=()):
+    """ computes the key based on the use """
     key = ''
     if use == TIMELINE:
         key = 'timeline'
@@ -121,11 +130,15 @@ def generate_key(use, args=()):
     key = key.encode('ascii','ignore')
     return key
 
+
 def multi_invalidate_memcache(uses, args=()):
+    """ performs batch memcache invalidation based on use """ 
     l = list(generate_key(use, args) for use in uses)
     mc.delete_multi(l)
 
+
 def invalidate_memcache(use, args=()):
+    """ invalidates memcache based on use """
     key = generate_key(use, args)
     mc.delete(key)
 
@@ -212,8 +225,8 @@ def user_timeline(username):
     # could cache this rendered page, but there is some messiness
     # because it depends on the followed param, so when invalidating
     # that would have to be recomputed. Since this will be invalidated
-    # more often than rendered, and an invalidation would now involve a query, 
-    # may not be worth it.
+    # more often than rendered, and an invalidation would now involve 
+    # an additional query, may not be worth it.
     return render_template('timeline.html', messages=query_db('''
             select message.*, user.* from message, user where
             user.user_id = message.author_id and user.user_id =%s
