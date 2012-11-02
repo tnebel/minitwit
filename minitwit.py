@@ -21,6 +21,7 @@ import string
 import MySQLdb.cursors
 
 # configuration
+#DATABASE = 'small100gb.c9ti5icjkf8h.us-east-1.rds.amazonaws.com'
 DATABASE = 'minitwitdb1.c9ti5icjkf8h.us-east-1.rds.amazonaws.com'
 PORT = 3306
 DB_NAME = 'minitwitdb'
@@ -29,15 +30,18 @@ DB_PASS = 'numbers1'
 PER_PAGE = 30
 DEBUG = True
 SECRET_KEY = 'development key'
+# memcached stuff
+TIMEOUT = 30
+mc = memcache.Client(['cluster-1.hiyqy9.0001.use1.cache.amazonaws.com:11211',
+                    'cluster-1.hiyqy9.0002.use1.cache.amazonaws.com:11211',
+                    'cluster-1.hiyqy9.0003.use1.cache.amazonaws.com:11211'], debug=0)
+
 
 # create our little application :)
 app = Flask(__name__)
 app.config.from_object(__name__)
 app.config.from_envvar('MINITWIT_SETTINGS', silent=True)
 
-mc = memcache.Client(['cluster-1.hiyqy9.0001.use1.cache.amazonaws.com:11211',
-                    'cluster-1.hiyqy9.0002.use1.cache.amazonaws.com:11211',
-                    'cluster-1.hiyqy9.0003.use1.cache.amazonaws.com:11211'], debug=0)
 
 # enumerates the possible cases for which to cache queries or rendered pages
 # allows keys to be generated without actually processing the page or query text
@@ -55,7 +59,10 @@ def get_db():
     """
     top = _app_ctx_stack.top
     if not hasattr(top, 'mysql_db'):
-        top.mysql_db = MySQLdb.connect(host=DATABASE, port=PORT, user=DB_USER, passwd=DB_PASS, db=DB_NAME, cursorclass=MySQLdb.cursors.DictCursor)
+        # notice cursorclass, the render function expects the query to be a 
+        # dict. Mysql returns a list by default
+        top.mysql_db = MySQLdb.connect(host=DATABASE, port=PORT, user=DB_USER,\
+                passwd=DB_PASS, db=DB_NAME, cursorclass=MySQLdb.cursors.DictCursor)
     return top.mysql_db
 
 def get_cursor():
@@ -151,7 +158,7 @@ def invalidate_memcache(use, args=()):
 def get_user_id(username):
     """Convenience method to look up the id for a username."""
     rv = query_db('select * from user where username=%s', (username,)
-                  , one=True, time=30, use=GET_USER)
+                  , one=True, time=TIMEOUT, use=GET_USER)
     return rv['user_id'] if rv else None
 
 
@@ -171,7 +178,7 @@ def before_request():
     g.user = None
     if 'user_id' in session:
         g.user = query_db('select * from user where user_id = %s',
-                          (session['user_id'],), one=True, time=30, use=GET_USER_NAME)
+                          (session['user_id'],), one=True, time=TIMEOUT, use=GET_USER_NAME)
 
 
 @app.route('/')
@@ -195,7 +202,7 @@ def timeline():
             order by message.pub_date desc limit %s''',
             (uid, uid, PER_PAGE))
         page = render_template('timeline.html', messages=m)
-        mc.set(key, page, 30)
+        mc.set(key, page, TIMEOUT)
         return page
     return page
 
@@ -210,7 +217,7 @@ def public_timeline():
             select message.*, user.* from message, user
             where message.author_id = user.user_id
             order by message.pub_date desc limit %s''', (PER_PAGE,)))
-        mc.set(key, page, 30)
+        mc.set(key, page, TIMEOUT)
         return page
     return page
 
@@ -219,7 +226,7 @@ def public_timeline():
 def user_timeline(username):
     """Display's a users tweets."""
     profile_user = query_db('select * from user where username = %s',
-                            (username,), one=True, time=30, use=GET_USER)
+                            (username,), one=True, time=TIMEOUT, use=GET_USER)
     if profile_user is None:
         abort(404)
     followed = False
@@ -227,7 +234,7 @@ def user_timeline(username):
         followed = query_db('''select 1 from follower where
             follower.who_id = %s and follower.whom_id = %s''',
             (session['user_id'], profile_user['user_id']),
-            one=True, time=30, use=FOLLOW) is not None
+            one=True, time=TIMEOUT, use=FOLLOW) is not None
     # could cache this rendered page, but there is some messiness
     # because it depends on the followed param, so when invalidating
     # that would have to be recomputed. Since this will be invalidated
@@ -237,7 +244,7 @@ def user_timeline(username):
             select message.*, user.* from message, user where
             user.user_id = message.author_id and user.user_id =%s
             order by message.pub_date desc limit %s''',
-            [profile_user['user_id'], PER_PAGE], time=30), followed=followed,
+            [profile_user['user_id'], PER_PAGE], time=TIMEOUT), followed=followed,
             profile_user=profile_user)
 
 
@@ -303,7 +310,7 @@ def login():
     error = None
     if request.method == 'POST':
         user = query_db('''select * from user where
-            username = %s''', (request.form['username'],), one=True, time=30, use=GET_USER)
+            username = %s''', (request.form['username'],), one=True, time=TIMEOUT, use=GET_USER)
         if user is None:
             error = 'Invalid username'
         elif not check_password_hash(user['pw_hash'],
